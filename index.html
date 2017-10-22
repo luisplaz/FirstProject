@@ -1,0 +1,512 @@
+<!-- Data Driven Web Applications
+	 Tuesday March 7,2017
+	 Luis Plaz
+	 Jessie Taft
+	 Kevin Park
+	-->
+
+<!-- Collisions.csv is from the NYC Open data initiative. It was cleaned to remove accidents
+where nobody was injured or killed, and to remove data with missing lat/long coordinates,
+borough names, and accident causes. -->
+
+<html>
+	<head>
+
+		<title>Project 1 : Static Data Visualization</title>
+
+		<script src="https://d3js.org/d3.v4.min.js"></script>
+		<script src="http://d3js.org/topojson.v2.min.js"></script>
+		<script src="https://d3js.org/d3-selection-multi.v0.4.min.js"></script>
+
+		<link href="https://fonts.googleapis.com/css?family=Anton" rel="stylesheet">
+		<link href="https://fonts.googleapis.com/css?family=Abel" rel="stylesheet">
+
+		<style>
+			body { background-color: #f2f2f2}
+			svg#mapDiv { display: block; margin: auto; }
+			svg text#title { fill: #595959; font-family: Anton; }
+			svg text#borotext { font-size: 30; font-family: Anton; }
+
+		</style>
+
+	</head>
+
+	<body>
+
+		<div id="map"></div>
+		<script>
+
+		var width = 1500,
+		height = 1000;
+
+		var col_set = [];
+		var factors_tot = {};
+		var reason_dict = {};
+		var borough_info = {};
+		var i = 0;
+
+		var boroughs;
+		var comms;
+		var popdata;
+
+		var projection = d3.geoAlbersUsa();
+		var pathGenerator = d3.geoPath().projection(projection);
+
+		var map = d3.select("#map").append("svg")
+		.attr("id", "mapDiv")
+		.attr("width", width)
+		.attr("height", height);
+
+		var fillArr = ["#72e5ef", "#a6b6f9", "#e3a0fa", "#a7e831", "#f8d147"];
+		var fillArrDarker = ["#176970", "#4e5987", "#405e09", "#4f2b5b", "#7c640c"];
+		var boroArr = ["BRONX", "MANHATTAN", "QUEENS", "BROOKLYN", "STATEN ISLAND"];
+		var wild_accidents = ["Animals Action","Drugs (Illegal)","Windshield Inadequate","Pedestrian/Bicyclist/Other Pedestrian Error/Confusion","Cell Phone (hand-held)", "Lane Marking Improper/Inadequate"];
+		var unusuallyCommon = [];
+
+		class collision {
+			constructor(long, lat, borough, injuries, deaths,reason) {
+				this.long = long;
+				this.lat = lat;
+				this.borough = borough;
+				this.injuries = injuries;
+				this.deaths = deaths;
+				this.reason = reason;
+			}
+		};
+
+		d3.queue()
+		.defer(d3.json, "boros.json")
+		.defer(d3.json, "communities.json")
+		.defer(d3.csv, "collisions2.csv")
+		.await(analyze);
+
+		function analyze(error, rawBoros, rawComms, colldata) {
+
+			if(error) { console.log(error); }
+
+			boroughs = rawBoros;
+			comms = rawComms;
+
+			//create collision objects from the dataset
+			colldata.forEach(function(col) {
+
+				if(col.BOROUGH != "" && col.LONGITUDE != "" && col.LATITUDE != "" && col['PERSONS INJURED'] != "" && col['PERSONS KILLED'] != "" && col['VEHICLE 1 FACTOR'] != "" ){
+
+					var new_collision = new collision(col.LONGITUDE,col.LATITUDE,col.BOROUGH,col.INJURIES,col.DEATHS,col['VEHICLE 1 FACTOR'])
+					col_set.push(new_collision);
+
+					if(col['VEHICLE 1 FACTOR'] in factors_tot == false){
+						factors_tot[col['VEHICLE 1 FACTOR']] = 1;
+					}else{
+						factors_tot[col['VEHICLE 1 FACTOR']]+=1;
+					}
+
+				}
+				i++;
+
+			});
+				totalFactors(col_set);
+				showMapLight();
+
+		};
+
+		//aggregate the different accident causes for each borough
+		function totalFactors (colArr){
+
+			for (index in colArr) {
+
+				if(colArr[index].borough in reason_dict == false){
+					reason_dict[colArr[index].borough] = {};
+					borough_info[colArr[index].borough] = {};
+					borough_info[colArr[index].borough]["total"] = 0;
+					borough_info[colArr[index].borough]["commonaccidents"] = [];
+
+					for(var factor in factors_tot){
+						reason_dict[colArr[index].borough][factor] = 0;
+					}
+				};
+
+				if(colArr[index].reason in reason_dict[colArr[index].borough] == false){
+					reason_dict[colArr[index].borough][colArr[index].reason] = 1;
+				}else{
+					reason_dict[colArr[index].borough][colArr[index].reason] += 1;
+				}
+
+				borough_info[colArr[index].borough]["total"] += 1;
+			}
+
+			factorPercentage(reason_dict);
+		};
+
+		//calculate the percentage of accidents per borough
+		function factorPercentage(dictionary){
+
+			for (var factor in factors_tot) {
+
+				var topBorough = "BRONX";
+				var perc = 0
+
+				for(var borough in reason_dict){
+
+					if(factor != "Unspecified"){
+
+						var percentage = dictionary[borough][factor] / borough_info[borough]["total"];
+						reason_dict[borough][factor] = percentage;
+
+						if(reason_dict[topBorough][factor] < percentage){
+
+							topBorough = borough;
+							perc = percentage;
+						};
+					};
+				};
+
+				if(factor != "Unspecified"){
+						borough_info[topBorough]["commonaccidents"].push(factor);
+				}
+			};
+		};
+
+		function showMapLight(){
+			//append title
+			map.append("text")
+				.attr("id", "title")
+				.attr("x", width/2)
+				.attr("y", 50)
+				.attr("text-anchor", "middle")
+				.attr("font-size", 40)
+				.text("MOTOR VEHICLE COLLISION INJURIES IN NYC:");
+
+			map.append("text")
+				.attr("id", "title")
+				.attr("x", width/2)
+				.attr("y", 110)
+				.attr("text-anchor", "middle")
+				.attr("font-size", 60)
+				.text("THE WILD AND THE WEIRD");
+
+			map.append("text")
+				.attr("x", width/2)
+				.attr("y", 130)
+				.attr("text-anchor", "middle")
+				.attr("fill", "#595959")
+				.attr("font-style", "italic")
+				.attr("font-family", "Abel")
+				.text("January 1st through April 30th, 2015");
+
+			projection.fitExtent([[200,150], [800, map.attr("height")]], boroughs);
+
+			//create borough paths, append and fill
+			boroughpaths = map.selectAll("path.boroughs").data(boroughs.features);
+
+		    boroughpaths.enter().append("path")
+		    .attr("class", "boroughs")
+		   	.attr("fill", function(){return fillArr.pop()})
+		    .merge(boroughpaths)
+		    .attr("d", function(boroughs){ return pathGenerator(boroughs); })
+		    .attr("stroke", "none")
+		    .attr("opacity","0.7");
+
+			//create neighborhood paths, append and fill
+			var commpaths = map.selectAll("path.tracts").data(comms.features);
+
+			commpaths.enter().append("path")
+		    .attr("class", "comms")
+		    .merge(commpaths)
+		    .attr("d", function(comms){ return pathGenerator(comms); })
+		    .attr("fill", "none")
+		    .attr("stroke", "#FFFFFF")
+		    .attr("stroke-width", "0.5");
+
+			//create filter to add to points as they're plotted
+			//Code adapted from: http://bl.ocks.org/cpbotha/5200394
+			var defs = map.append("defs");
+			var filter = defs.append("filter")
+				.attr("id", "shadow")
+				.attr("height", "400%")
+				.attr("width", "400%")
+				.attr("x", "-50%")
+				.attr("y", "-50%");
+
+			filter.append("feGaussianBlur")
+				.attr("in", "SourceAlpha")
+				.attr("stdDeviation", 2)
+				.attr("result", "blur");
+
+			filter.append("feOffset")
+			    .attr("in", "blur")
+			    .attr("dx", 2)
+			    .attr("dy", 2)
+			    .attr("result", "offsetBlur");
+
+			filter.append("feBlend")
+					.attr("in", "SourceGraphic")
+					.attr("in2", "offsetBlur");
+
+			//add the points for rare or highly injurious accidents
+			for(i=0; i<col_set.length; i++){
+	    	if(col_set[i].injuries>=15 || col_set[i].deaths > 0 || wild_accidents.includes(col_set[i].reason)){
+		    	map.append("circle")
+				    .attr("cx", projection([col_set[i].long,col_set[i].lat])[0])
+				    .attr("cy", projection([col_set[i].long,col_set[i].lat])[1])
+				    .attrs(setAttrs);
+				}
+			};
+
+			function setAttrs(){
+
+				if(col_set[i].injuries>=15){
+					return {r: 3 * Math.sqrt(col_set[i].injuries), fill: "#FF6700", opacity: 0.1 * Math.sqrt(col_set[i].injuries)};
+				}else if(col_set[i].reason=="Animals Action" ){
+					return {r: 4, fill: "MediumVioletRed", filter: "url(#shadow)"}
+				}else if(col_set[i].reason=="Drugs (Illegal)"){
+					return {r: 4, fill: "RoyalBlue", filter: "url(#shadow)"}
+				}else if(col_set[i].reason=="Windshield Inadequate"){
+					return {r: 4, fill: "ForestGreen", filter: "url(#shadow)"}
+				}else if(col_set[i].reason=="Pedestrian/Bicyclist/Other Pedestrian Error/Confusion"){
+					return {r: 4, fill: "OrangeRed", filter: "url(#shadow)"}
+				}else if(col_set[i].reason=="Cell Phone (hand-held)"){
+					return {r: 4, fill: "DarkOrchid", filter: "url(#shadow)"}
+				}else if(col_set[i].reason=="Lane Marking Improper/Inadequate"){
+					return {r: 4, fill: "#996600", filter: "url(#shadow)"}
+				}
+			};
+
+			showByBoroughLight();
+		};
+
+
+		function showByBoroughLight(){
+
+			//for each borough, create a group for adding everything relating to it
+			for(j=0;j<boroArr.length; j++){
+
+				var accArray = []
+
+				var group = map.append("g")
+					.attr("id", boroArr[j])
+					.attr("transform", "translate(180,70)");
+
+				group.append("text")
+					.attr("id", "borotext")
+					.attr("x", 800)
+					.attr("y", (j*140)+ 200)
+					.attr("text-anchor", "end")
+					.attr("fill", fillArrDarker[j])
+					.text(boroArr[j]);
+
+				group.append("text")
+					.attr("x", 800)
+					.attr("y", (j*140)+ 235)
+					.attr("text-anchor", "end")
+					.attr("fill", fillArrDarker[j])
+					.attr("font-size", 20)
+					.attr("font-family", "Anton")
+					.text("Total Incidents: " + borough_info[boroArr[j]]["total"]);
+
+
+					[1,2,3,4].forEach(function(i) {
+
+						element = borough_info[boroArr[j]]["commonaccidents"].shift();
+
+						accArray.push(element)
+
+						if(i == 4){
+							unusuallyCommon.push(accArray);
+						}
+
+					});
+
+				//add the unusually common factors that were previously calculated
+				for (m=0; m<unusuallyCommon.length; m++){
+					for (n=0; n<unusuallyCommon[m].length; n++){
+						group.append("text")
+							.attr("x", 820)
+							.attr("y", 195 + (m * 140) + (25*n) )
+							.attr("font-size", 20)
+							.attr("font-family", "Abel")
+							.attr("fill", fillArrDarker[m])
+							.text(unusuallyCommon[m][n]);
+					}
+				};
+
+				group.append("line")
+					.attr("x1", 810)
+					.attr("y1", (j*140) + 170)
+					.attr("x2", 810)
+					.attr("y2", (j*140) + 280)
+					.attr("stroke", fillArrDarker[j])
+					.attr("stroke-width", 2);
+
+				group.append("line")
+					.attr("x1", 809)
+					.attr("y1", (j*140) + 170)
+					.attr("x2", 1100)
+					.attr("y2", (j*140) + 170)
+					.attr("stroke", fillArrDarker[j])
+					.attr("stroke-width", 2);
+			};
+
+			//add title for borough-level "weird" info
+			map.append("text")
+				.attr("x", 980)
+				.attr("y", 210)
+				.attr("font-size", 40)
+				.attr("text-anchor", "end")
+				.attr("font-family", "Anton")
+				.attr("fill", "#595959")
+				.text("THE WEIRD");
+
+			map.append("text")
+				.attr("x", 1000)
+				.attr("y", 200)
+				.attr("font-size", 25)
+				.attr("font-style", "italic")
+				.attr("font-family", "Abel")
+				.attr("fill", "#595959")
+				.text("Unusually common collision causes");
+
+		//add title for "wild" info
+			map.append("text")
+				.attr("x", 110)
+				.attr("y", 210)
+				.attr("font-size", 40)
+				.attr("font-family", "Anton")
+				.attr("fill", "#595959")
+				.text("THE WILD");
+
+			map.append("text")
+				.attr("x", 110)
+				.attr("y", 235)
+				.attr("font-size", 25)
+				.attr("font-style", "italic")
+				.attr("font-family", "Abel")
+				.attr("fill", "#595959")
+				.text("Very rare collision causes");
+
+		//add legend for high-injury collisions
+		var legend = map.append("g")
+			.attr("id", "legend");
+
+			legend.append("text")
+				.attr("x", 120)
+				.attr("y", 300)
+				.attr("fill", "#595959")
+				.attr("font-family", "Abel")
+				.attr("font-size", 25)
+				.text("High-Injury Collisions");
+
+			legend.append("text")
+				.attr("x", 130)
+				.attr("y", 400)
+				.attr("text-anchor", "middle")
+				.attr("fill", "#595959")
+				.attr("font-family", "Abel")
+				.attr("font-size", 15)
+				.text("15");
+
+			legend.append("text")
+				.attr("x", 235)
+				.attr("y", 400)
+				.attr("font-family", "Abel")
+				.attr("fill", "#595959")
+				.attr("font-size", 15)
+				.text("64 people injured");
+
+			legend.append("circle")
+				.attr("cx", 130)
+				.attr("cy", 350)
+				.attr("r", 3*Math.sqrt(15))
+				.attr("fill", "#FF6700")
+				.attr("opacity" ,.1*Math.sqrt(15));
+
+			legend.append("circle")
+				.attr("cx", 180)
+				.attr("cy", 350)
+				.attr("r", 3*Math.sqrt(32))
+				.attr("fill", "#FF6700")
+				.attr("opacity" ,.1*Math.sqrt(32));
+
+			legend.append("circle")
+				.attr("cx", 240)
+				.attr("cy", 350)
+				.attr("r", 3*Math.sqrt(64))
+				.attr("fill", "#FF6700")
+				.attr("opacity" ,.1*Math.sqrt(64));
+
+			legend.append("path")
+				.attr("id", "legendPath")
+				.attr("d", "M 140 395 L 230 395")
+				.attr("stroke", "#595959");
+
+		//append a group for the rare collision types
+		rarelegend = map.append("g");
+
+		var rareColors = ["MediumVioletRed", "RoyalBlue", "ForestGreen", "OrangeRed", "DarkOrchid", "#996600"];
+
+		for (i=0; i<wild_accidents.length; i++){
+			if (wild_accidents[i] == "Pedestrian/Bicyclist/Other Pedestrian Error/Confusion"){
+				wild_accidents[i] = "Pedestrian Error";
+			}
+			if (wild_accidents[i] == "Lane Marking Improper/Inadequate"){
+				wild_accidents[i] = "Inadequate Lane Marking";
+			}
+			rarelegend.append("circle")
+				.attr("cx", 130)
+				.attr("cy", 480 + (30 * i))
+				.attr("r", 4)
+				.attr("fill", rareColors[i])
+				.attr("filter", "url(#shadow)");
+
+			rarelegend.append("text")
+				.attr("x", 140)
+				.attr("y", 485 + (30*i))
+				.attr("alignment-baseline", "middle")
+				.attr("fill", "#595959")
+				.attr("font-family", "Abel")
+				.attr("font-size", 20)
+				.text(wild_accidents[i]);
+		}
+
+		rarelegend.append("text")
+			.attr("x", 120)
+			.attr("y", 460)
+			.attr("fill", "#595959")
+			.attr("font-family", "Abel")
+			.attr("font-size", 25)
+			.text("Rare Collision Types");
+
+		//add the paths that connect boroughs to their corresponding rectangles
+		var linegroup = map.append("g")
+			.attr("id", "pointerpath")
+			.attr("stroke-width", 2)
+			.attr("fill", "none")
+			.attr("transform", "translate(180,125)");
+
+			linegroup.append("path")
+				.attr("d", "M 370 180 L 650 155 L 810 155")
+				.attr("stroke", fillArrDarker[0]);
+
+			linegroup.append("path")
+				.attr("d", "M 270 290 L 650 295 L 810 295")
+				.attr("stroke", fillArrDarker[1]);
+
+			linegroup.append("path")
+				.attr("d", "M 550 400 L 690 435 L 810 435")
+				.attr("stroke", fillArrDarker[2]);
+
+			linegroup.append("path")
+				.attr("d", "M 400 550 L 680 575 L 810 575")
+				.attr("stroke", fillArrDarker[3]);
+
+			linegroup.append("path")
+				.attr("d", "M 120 720 L 620 715 L 810 715")
+				.attr("stroke", fillArrDarker[4]);
+		};
+
+
+		</script>
+
+	</body>
+
+</html>
